@@ -1,0 +1,8 @@
+langchain
+openai
+langchain_openai
+langchain_community
+langchain_experimental
+langgraph
+duckduckgo_search==4.1.1
+google-search-results
