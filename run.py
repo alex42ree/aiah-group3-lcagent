@@ -1,4 +1,4 @@
-from agent import byo_chatgpt
+from app.agent import byo_chatgpt
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 import os

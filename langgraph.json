@@ -1,7 +1,15 @@
 {
-    "dependencies": ["."],
+    "dependencies": [
+        ".",
+        {
+            "path": "./api",
+            "type": "node",
+            "command": "npm start",
+            "port": 3000
+        }
+    ],
     "graphs": {
-      "agent": "./agent.py:byo_chatgpt"
+      "agent": "./app/agent.py:byo_chatgpt"
     },
     "env": ".env"
   }

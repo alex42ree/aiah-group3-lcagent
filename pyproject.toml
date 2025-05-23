@@ -1,0 +1,17 @@
+[project]
+name = "langchain-react-agent"
+version = "0.1.0"
+description = "A LangChain agent with React and Hono API integration"
+requires-python = ">=3.9"
+
+[tool.langserve]
+export = ["app.server:app"]
+port = 8000
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py39" 
