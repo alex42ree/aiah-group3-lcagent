@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from typing import Annotated, List, Union
 from fastapi import Body
 from app.agent import byo_chatgpt
+from app.country_data import app as country_data_app
 from pydantic import BaseModel
 
 app = FastAPI(
@@ -11,6 +12,9 @@ app = FastAPI(
     version="1.0",
     description="A LangChain agent with React and Hono API integration"
 )
+
+# Mount the country data app
+app.mount("/api", country_data_app)
 
 # Define the input type for the agent
 class AgentInput(BaseModel):

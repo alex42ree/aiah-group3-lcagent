@@ -6,16 +6,23 @@ from langchain_core.tools import tool, Tool, BaseTool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
 from app.port_tools import PortExtractorTool
+from app.country_data import Operation  # Import the Operation enum
 import requests
 import os
 import time
 import random
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 from dotenv import load_dotenv
+import json
+from urllib.parse import urljoin
 
 # Load environment variables
 load_dotenv()
+
+# Get the base URL for the API
+API_BASE_URL = os.getenv('API_BASE_URL', 'http://127.0.0.1:8000')
+COUNTRY_DATA_ENDPOINT = urljoin(API_BASE_URL, '/api/country-data')
 
 # Debug: Print environment variables (masked for security)
 print("\nDebug: Environment Variables:")
@@ -155,112 +162,94 @@ repl_tool = Tool(
 
 class CountryDataInput(BaseModel):
     """Input for the country data tool."""
-    operation: str = Field(description="The operation to perform: 'get_entry', 'search', or 'same_country'")
+    operation: Operation = Field(description="The operation to perform: 'get_entry', 'search', or 'same_country'")
     entry_id: Optional[str] = Field(default=None, description="The ID of the entry to get")
     search_query: Optional[str] = Field(default=None, description="The search query for finding entries")
     entry1_id: Optional[str] = Field(default=None, description="First entry ID for same_country check")
     entry2_id: Optional[str] = Field(default=None, description="Second entry ID for same_country check")
 
 class CountryDataTool(BaseTool):
-    """Tool for managing and querying country-related data."""
-    
     name: str = "country_data"
-    description: str = """Use this tool to:
-    1. Get a single entry by ID (e.g., 'DE-HAM', 'US-NYC', 'GB-LON')
+    description: str = """Use this tool to get information about countries and cities.
+    You can:
+    1. Get a single entry by ID (e.g., 'DE-HAM', 'US-NYC')
     2. Search for entries by name or country
-    3. Check if two entries are from the same country
-    
-    Operations:
-    - get_entry: Get a single entry by its exact ID (e.g., 'DE-HAM' for Hamburg)
-    - search: Search for entries by name or country (e.g., 'Hamburg' or 'Germany')
-    - same_country: Check if two entries are from the same country
-    
-    When you have an exact ID (like 'DE-HAM'), always use get_entry operation."""
-    
-    args_schema: type[BaseModel] = CountryDataInput
-    
-    def _run(
-        self,
-        operation: str,
-        entry_id: Optional[str] = None,
-        search_query: Optional[str] = None,
-        entry1_id: Optional[str] = None,
-        entry2_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Execute the requested country data operation.
+    3. Check if two entries are in the same country
+
+    Examples:
+    - To get info about Hamburg: "Get information about DE-HAM"
+    - To search for cities: "Search for Hamburg"
+    - To check if cities are in same country: "Are DE-HAM and DE-HRB in the same country?"
+
+    Note: When an exact ID (like 'DE-HAM') is provided, use the get_entry operation.
+    """
+    args_schema: Type[BaseModel] = CountryDataInput
+
+    def _run(self, operation: str, entry_id: Optional[str] = None, search_query: Optional[str] = None,
+             entry1_id: Optional[str] = None, entry2_id: Optional[str] = None) -> str:
+        """Run the tool."""
+        # If entry_id contains a hyphen, it's likely an exact ID, so use get_entry
+        if entry_id and '-' in entry_id:
+            operation = Operation.GET_ENTRY
+        else:
+            # Convert string operation to enum
+            try:
+                operation = Operation(operation)
+            except ValueError:
+                return f"Error: Invalid operation '{operation}'. Must be one of: {', '.join(op.value for op in Operation)}"
+
+        # Prepare the request payload based on operation
+        payload = {"operation": operation.value}  # Use .value to get the string value
         
-        Args:
-            operation: The operation to perform
-            entry_id: ID for get_entry operation (e.g., 'DE-HAM')
-            search_query: Query for search operation (e.g., 'Hamburg')
-            entry1_id: First entry ID for same_country check
-            entry2_id: Second entry ID for same_country check
-            
-        Returns:
-            Dictionary containing the operation result
-        """
+        if operation == Operation.GET_ENTRY:
+            if not entry_id:
+                return "Error: entry_id is required for get_entry operation"
+            payload["entry_id"] = entry_id
+        elif operation == Operation.SEARCH:
+            if not search_query:
+                return "Error: search_query is required for search operation"
+            payload["search_query"] = search_query
+        elif operation == Operation.SAME_COUNTRY:
+            if not entry1_id or not entry2_id:
+                return "Error: Both entry1_id and entry2_id are required for same_country operation"
+            payload["entry1_id"] = entry1_id
+            payload["entry2_id"] = entry2_id
+
+        print(f"Sending request to API: {json.dumps(payload, indent=2)}")
+        print(f"API URL: {COUNTRY_DATA_ENDPOINT}")
+        
         try:
-            # Get API URL from environment
-            api_url = os.getenv('API_URL', 'http://localhost:3000')
-            
-            # If we have an entry_id that looks like a code (e.g., 'DE-HAM'), use get_entry
-            if entry_id and '-' in entry_id:
-                operation = 'get_entry'
-            
-            # Prepare request payload based on operation
-            payload = {"operation": operation}
-            
-            if operation == "get_entry":
-                if not entry_id:
-                    return {"error": "entry_id is required for get_entry operation"}
-                payload["entry_id"] = entry_id
-            elif operation == "search":
-                if not search_query:
-                    return {"error": "search_query is required for search operation"}
-                payload["search_query"] = search_query
-            elif operation == "same_country":
-                if not entry1_id or not entry2_id:
-                    return {"error": "Both entry1_id and entry2_id are required for same_country operation"}
-                payload["entry1_id"] = entry1_id
-                payload["entry2_id"] = entry2_id
-            
-            print(f"Debug: Sending request to API with payload: {payload}")
-            
-            # Call the API endpoint
+            # Use the FastAPI endpoint
             response = requests.post(
-                f"{api_url}/country-data",
-                json=payload
+                COUNTRY_DATA_ENDPOINT,
+                json=payload,
+                headers={"Content-Type": "application/json"}
             )
             
-            if response.status_code != 200:
-                return {
-                    "error": f"API request failed with status {response.status_code}",
-                    "details": response.text
-                }
-                
-            return response.json()
+            # Log the response status and headers
+            print(f"Response status: {response.status_code}")
+            print(f"Response headers: {dict(response.headers)}")
             
+            if response.status_code != 200:
+                print(f"Error response body: {response.text}")
+                response.raise_for_status()
+                
+            result = response.json()
+            print(f"API Response: {json.dumps(result, indent=2)}")
+            return json.dumps(result["data"], indent=2)
         except requests.exceptions.RequestException as e:
-            return {
-                "error": "Request failed",
-                "details": str(e)
-            }
-        except Exception as e:
-            return {
-                "error": "Unexpected error",
-                "details": str(e)
-            }
-    
-    async def _arun(
-        self,
-        operation: str,
-        entry_id: Optional[str] = None,
-        search_query: Optional[str] = None,
-        entry1_id: Optional[str] = None,
-        entry2_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Async implementation of the country data operations."""
-        return self._run(operation, entry_id, search_query, entry1_id, entry2_id)
+            print(f"API Error: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Error response status: {e.response.status_code}")
+                print(f"Error response headers: {dict(e.response.headers)}")
+                print(f"Error response body: {e.response.text}")
+                if hasattr(e.response, 'json'):
+                    error_detail = e.response.json().get('detail', str(e))
+                else:
+                    error_detail = e.response.text
+            else:
+                error_detail = str(e)
+            return f"Error: {error_detail}"
 
 # Define list of tools
 tools = [
