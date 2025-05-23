@@ -1,16 +1,16 @@
 {
     "dependencies": ["."],
     "graphs": {
-      "agent": "./app/agent.py:byo_chatgpt"
+      "agent": "./langchain_react_agent/agent.py:byo_chatgpt"
     },
     "env": ".env",
     "http": {
-      "app": "./app/server.py:app"
+      "app": "./langchain_react_agent/server.py:app"
     },
     "build": {
       "python_version": "3.11",
       "package": {
-        "name": "langchain-react-agent",
+        "name": "langchain_react_agent",
         "version": "0.1.0"
       }
     }

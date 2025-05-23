@@ -3,9 +3,9 @@ from langserve import add_routes
 from langchain_core.messages import HumanMessage, AIMessage
 from typing import Annotated, List, Union
 from fastapi import Body
-from app.agent import byo_chatgpt
-from app.country_data import app as country_data_app
-from app.container_data import app as container_data_app
+from langchain_react_agent.agent import byo_chatgpt
+from langchain_react_agent.country_data import app as country_data_app
+from langchain_react_agent.container_data import app as container_data_app
 from pydantic import BaseModel
 
 app = FastAPI(
