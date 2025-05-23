@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 import json
 from urllib.parse import urljoin
 
-# Load environment variables
+# Load environment variables into
 load_dotenv()
 
 # Get the base URL for the API

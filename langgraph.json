@@ -2,7 +2,7 @@
     "dependencies": ["."],
     "graphs": {
       "agent": "./langchain_react_agent/agent.py:byo_chatgpt"
-    },
+    },  
     "env": ".env",
     "http": {
       "app": "./langchain_react_agent/server.py:app"
