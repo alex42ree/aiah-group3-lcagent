@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Body, HTTPException
 from langserve import add_routes
 from langchain_core.messages import HumanMessage, AIMessage
-from typing import List, Union
-from pydantic import create_model
+from langchain_core.runnables import RunnableConfig
+from typing import List, Union, Dict, Any
+from pydantic import BaseModel, Field
 import os
 import sys
 from pathlib import Path
@@ -27,6 +28,30 @@ except ImportError as e:
     print(f"Current directory: {os.getcwd()}")
     print(f"Looking for modules in: {current_dir}")
     raise
+
+# Define input/output models
+class AgentMessage(BaseModel):
+    """Base model for agent messages."""
+    content: str
+    type: str = "human"  # or "ai"
+    additional_kwargs: Dict[str, Any] = Field(default_factory=dict)
+
+class AgentInput(BaseModel):
+    """Input model for the agent."""
+    messages: List[AgentMessage]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "messages": [
+                    {
+                        "content": "What ports are available in Germany?",
+                        "type": "human",
+                        "additional_kwargs": {}
+                    }
+                ]
+            }
+        }
 
 # Create FastAPI app
 app = FastAPI(
@@ -59,12 +84,6 @@ except Exception as e:
     print(f"Error mounting apps: {e}")
     raise
 
-# Create a simpler input model
-AgentInput = create_model(
-    "AgentInput",
-    messages=(List[Union[HumanMessage, AIMessage]], ...)
-)
-
 # Add routes for the agent with proper type definitions
 try:
     add_routes(
@@ -74,7 +93,7 @@ try:
         enable_feedback_endpoint=True,
         enable_public_trace_link_endpoint=True,
         input_type=AgentInput,
-        per_req_config_modifier=lambda config, request: {
+        per_req_config_modifier=lambda config: {
             **config,
             "configurable": {
                 **config.get("configurable", {}),
@@ -84,16 +103,29 @@ try:
     )
 except Exception as e:
     print(f"Error adding routes: {e}")
+    print(f"Error type: {type(e)}")
+    print(f"Error details: {str(e)}")
     raise
 
 # Add error handlers
 @app.exception_handler(Exception)
 async def generic_exception_handler(request, exc):
     """Handle all unhandled exceptions."""
-    return {
+    error_details = {
         "error": str(exc),
         "detail": "An unexpected error occurred",
         "type": type(exc).__name__,
         "python_path": sys.path,
         "current_directory": os.getcwd()
-    } 
+    }
+    
+    # Add more details for Pydantic errors
+    if "pydantic" in str(type(exc).__module__):
+        error_details.update({
+            "pydantic_error": True,
+            "error_code": getattr(exc, "code", None),
+            "error_type": getattr(exc, "type", None),
+            "error_location": getattr(exc, "loc", None)
+        })
+    
+    return error_details 
