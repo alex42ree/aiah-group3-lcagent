@@ -9,6 +9,9 @@
     },
     "build": {
       "python_version": "3.11",
-      "requirements": "requirements.txt"
+      "package": {
+        "name": "langchain-react-agent",
+        "version": "0.1.0"
+      }
     }
   }
