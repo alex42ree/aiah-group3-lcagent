@@ -8,6 +8,13 @@ from langchain_react_agent.country_data import app as country_data_app
 from langchain_react_agent.container_data import app as container_data_app
 import os
 from dotenv import load_dotenv
+import sys
+from pathlib import Path
+
+# Add the project root to Python path
+project_root = str(Path(__file__).parent.parent)
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
 # Load environment variables
 load_dotenv(override=True)
@@ -29,7 +36,8 @@ async def health_check():
     return {
         "status": "ok",
         "environment": os.getenv("ENVIRONMENT", "development"),
-        "openai_api_key": "configured" if os.getenv("OPENAI_API_KEY") else "missing"
+        "openai_api_key": "configured" if os.getenv("OPENAI_API_KEY") else "missing",
+        "python_path": sys.path
     }
 
 # Mount the apps at different paths
@@ -66,18 +74,21 @@ async def generic_exception_handler(request, exc):
     return {
         "error": str(exc),
         "detail": "An unexpected error occurred",
-        "type": type(exc).__name__
+        "type": type(exc).__name__,
+        "python_path": sys.path
     }
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
+    print(f"Starting server with Python path: {sys.path}")
     uvicorn.run(
-        app,
+        "langchain_react_agent.server:app",
         host=host,
         port=port,
         log_level="info",
         proxy_headers=True,
-        forwarded_allow_ips="*"
+        forwarded_allow_ips="*",
+        reload=True
     ) 
