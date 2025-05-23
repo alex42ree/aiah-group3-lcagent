@@ -5,14 +5,14 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import tool, Tool, BaseTool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
-from app.port_tools import PortExtractorTool
 from app.country_data import Operation  # Import the Operation enum
+from app.container_data import ContainerType
 import requests
 import os
 import time
 import random
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any, Type, List
 from dotenv import load_dotenv
 import json
 from urllib.parse import urljoin
@@ -22,7 +22,8 @@ load_dotenv()
 
 # Get the base URL for the API
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://127.0.0.1:8000')
-COUNTRY_DATA_ENDPOINT = urljoin(API_BASE_URL, '/api/country-data')
+COUNTRY_DATA_ENDPOINT = urljoin(API_BASE_URL, '/api/country/country-data')
+CONTAINER_CHECK_ENDPOINT = urljoin(API_BASE_URL, '/api/container/container-check')
 
 # Debug: Print environment variables (masked for security)
 print("\nDebug: Environment Variables:")
@@ -127,38 +128,6 @@ def wolfram_alpha_llm_api(query: str) -> dict:
         print(f"Debug: Full traceback:\n{traceback.format_exc()}")
         return {"error": "unexpected_error", "message": str(e)}
 
-# Image Gen
-@tool
-def generate_dalle_image(prompt: str):
-    """
-    Function to generate an image using OpenAI's DALL-E model.
-
-    Parameters:
-    - prompt (str): The prompt to generate the image.
-
-    Returns:
-    - str: The URL of the generated image.
-    """
-    client = OpenAI()
-
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size="1024x1024",
-        quality="standard",
-        n=1,
-     )
-
-    return response.data[0].url
-
-# Python Execution
-python_repl = PythonREPL()
-
-repl_tool = Tool(
-    name="python_repl",
-    description="A Python shell. Use this to execute python commands. Input should be valid python commands. ALWAYS print ANY results out with `print(...)`",
-    func=python_repl.run,
-)
 
 class CountryDataInput(BaseModel):
     """Input for the country data tool."""
@@ -251,20 +220,90 @@ class CountryDataTool(BaseTool):
                 error_detail = str(e)
             return f"Error: {error_detail}"
 
+class ContainerCount(BaseModel):
+    """Container count input."""
+    type: ContainerType = Field(description="The type of container (HH42, HH24, or HH12)")
+    count: int = Field(ge=0, description="Number of containers (must be >= 0)")
+
+class ContainerCheckInput(BaseModel):
+    """Input for the container check tool."""
+    containers: List[ContainerCount] = Field(description="List of container counts to check")
+
+class ContainerCheckTool(BaseTool):
+    name: str = "container_check"
+    description: str = """Use this tool to validate container configurations.
+    You can check if a container configuration is valid by providing counts for different container types.
+    
+    The tool validates:
+    1. Container types must be one of: HH42, HH24, HH12
+    2. Container counts must be >= 0
+    3. At least one container type must have a count > 0
+    
+    Examples:
+    - "Check if we have 2 HH42 containers and 1 HH24 container"
+    - "Validate container configuration: 3 HH42, 0 HH24, 1 HH12"
+    - "Are these containers valid: 0 HH42, 0 HH24, 0 HH12" (this will return an error)
+    """
+    args_schema: Type[BaseModel] = ContainerCheckInput
+
+    def _run(self, containers: List[ContainerCount]) -> str:
+        """Run the tool."""
+        # Prepare the request payload
+        payload = {
+            "containers": [
+                {"type": container.type.value, "count": container.count}
+                for container in containers
+            ]
+        }
+
+        print(f"Sending request to API: {json.dumps(payload, indent=2)}")
+        print(f"API URL: {CONTAINER_CHECK_ENDPOINT}")
+        
+        try:
+            # Use the FastAPI endpoint
+            response = requests.post(
+                CONTAINER_CHECK_ENDPOINT,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            
+            # Log the response status and headers
+            print(f"Response status: {response.status_code}")
+            print(f"Response headers: {dict(response.headers)}")
+            
+            if response.status_code != 200:
+                print(f"Error response body: {response.text}")
+                response.raise_for_status()
+                
+            result = response.json()
+            print(f"API Response: {json.dumps(result, indent=2)}")
+            return json.dumps(result["data"], indent=2)
+        except requests.exceptions.RequestException as e:
+            print(f"API Error: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Error response status: {e.response.status_code}")
+                print(f"Error response headers: {dict(e.response.headers)}")
+                print(f"Error response body: {e.response.text}")
+                if hasattr(e.response, 'json'):
+                    error_detail = e.response.json().get('detail', str(e))
+                else:
+                    error_detail = e.response.text
+            else:
+                error_detail = str(e)
+            return f"Error: {error_detail}"
+
 # Define list of tools
 tools = [
-    wolfram_alpha_llm_api,
-    web_search,
-    generate_dalle_image,
-    repl_tool,
-    PortExtractorTool(),  # Add the port extractor tool
-    CountryDataTool()     # Add the country data tool
+    #wolfram_alpha_llm_api,
+    #web_search,
+    CountryDataTool(),     # Add the country data tool
+    ContainerCheckTool()   # Add the container check tool
 ]
 
 # Instantiate LLM
 llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
 
-system_prompt="Ensure your generation of the image URL is exact, add an extra space after it to ensure no new lines mess it up. Always use Wolfram Alpha for Math questions, no matter how basic. Always print executed python statements for logging."
+system_prompt="Collect information about the origin port and the destination port. Use the country_data tool to validate the information or to search for the port codes if not provided. Assure that the origin and the destionation port are NOT in the same country. If yes, ask the user to provide the port codes again. Check the number of containers of different types (HH42, HH24, HH12). There must be at least 1 container given in one category. Use the container check tool to check the number and type of containers. If the type is wrong or the number is not at least 1 ask the user to provide the correct container information. "
 
 # Main Graph
 byo_chatgpt = create_react_agent(

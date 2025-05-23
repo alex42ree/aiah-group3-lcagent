@@ -1,5 +1,5 @@
 {
-
+    "dependencies": ["."],
     "graphs": {
       "agent": "./app/agent.py:byo_chatgpt"
     },
