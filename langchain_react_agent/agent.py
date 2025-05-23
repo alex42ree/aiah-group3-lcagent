@@ -56,21 +56,28 @@ class CountryDataTool(BaseTool):
     """
     args_schema: Type[BaseModel] = WrappedRequest
 
-    def _run(self, request: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def _run(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """Run the tool."""
         try:
-            # Parse the input into our WrappedRequest model
-            if isinstance(request, str):
-                request_data = json.loads(request)
-            elif isinstance(request, dict):
-                if 'args' in request:
-                    request_data = request['args']
-                elif 'function' in request and 'arguments' in request['function']:
-                    request_data = json.loads(request['function']['arguments'])
-                else:
-                    request_data = request
+            # Handle both positional and keyword arguments
+            if args and isinstance(args[0], (str, dict)):
+                request_data = args[0]
+            elif kwargs:
+                request_data = kwargs
             else:
-                raise ValueError(f"Unexpected request type: {type(request)}")
+                raise ValueError("No valid input data provided")
+
+            # Parse the input into our WrappedRequest model
+            if isinstance(request_data, str):
+                request_data = json.loads(request_data)
+            elif isinstance(request_data, dict):
+                if 'args' in request_data:
+                    request_data = request_data['args']
+                elif 'function' in request_data and 'arguments' in request_data['function']:
+                    request_data = json.loads(request_data['function']['arguments'])
+                elif 'root' in request_data:
+                    # If we got the root directly as a kwarg
+                    request_data = {'root': request_data['root']}
 
             # Validate and parse the request using our WrappedRequest model
             wrapped_request = WrappedRequest.model_validate(request_data)
@@ -89,7 +96,7 @@ class CountryDataTool(BaseTool):
         except requests.exceptions.RequestException as e:
             return {"error": f"API request failed: {str(e)}"}
         except Exception as e:
-            return {"error": f"Validation error: {str(e)}"}
+            return {"error": f"Tool execution error: {str(e)}"}
 
 class ContainerCheckTool(BaseTool):
     name: str = "container_check"
