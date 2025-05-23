@@ -71,11 +71,38 @@ async def country_data(request: Request):
             data = await request.json()
             print(f"Parsed JSON data: {json.dumps(data, indent=2)}")
             
-            # Convert to our model
-            validated_data = CountryDataRequest.model_validate(data)
-            print(f"Validated data: {validated_data.model_dump_json(indent=2)}")
+            # Extract data from root if present
+            if isinstance(data, dict) and 'root' in data:
+                data = data['root']
             
-            data = validated_data.root
+            # Create the appropriate request object based on operation
+            operation = data.get('operation')
+            if not operation:
+                raise ValueError("Operation is required")
+            
+            # Create the appropriate request object directly
+            if operation == 'same_country':
+                request_obj = SameCountryRequest(
+                    operation=Operation.SAME_COUNTRY,
+                    entry1_id=data['entry1_id'],
+                    entry2_id=data['entry2_id']
+                )
+            elif operation == 'get_entry':
+                request_obj = GetEntryRequest(
+                    operation=Operation.GET_ENTRY,
+                    entry_id=data['entry_id']
+                )
+            elif operation == 'search':
+                request_obj = SearchRequest(
+                    operation=Operation.SEARCH,
+                    search_query=data['search_query']
+                )
+            else:
+                raise ValueError(f"Invalid operation: {operation}")
+            
+            # Use the request object directly
+            data = request_obj
+            
         except Exception as e:
             print(f"Validation error: {str(e)}")
             raise HTTPException(status_code=400, detail=f"Invalid request format: {str(e)}")

@@ -1,25 +1,18 @@
 from fastapi import FastAPI, Body, HTTPException
 from langserve import add_routes
 from langchain_core.messages import HumanMessage, AIMessage
-from typing import List, Union, Annotated
-from pydantic import BaseModel, create_model
-from langchain_react_agent.agent import byo_chatgpt
-from langchain_react_agent.country_data import app as country_data_app
-from langchain_react_agent.container_data import app as container_data_app
+from typing import List, Union
+from pydantic import create_model
+from .agent import byo_chatgpt
+from .country_data import app as country_data_app
+from .container_data import app as container_data_app
 import os
 from dotenv import load_dotenv
-import sys
-from pathlib import Path
-
-# Add the project root to Python path
-project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.append(project_root)
 
 # Load environment variables
 load_dotenv(override=True)
 
-# Create FastAPI app with CORS middleware
+# Create FastAPI app
 app = FastAPI(
     title="LangChain React Agent",
     version="1.0",
@@ -36,8 +29,7 @@ async def health_check():
     return {
         "status": "ok",
         "environment": os.getenv("ENVIRONMENT", "development"),
-        "openai_api_key": "configured" if os.getenv("OPENAI_API_KEY") else "missing",
-        "python_path": sys.path
+        "openai_api_key": "configured" if os.getenv("OPENAI_API_KEY") else "missing"
     }
 
 # Mount the apps at different paths
@@ -58,7 +50,7 @@ add_routes(
     enable_feedback_endpoint=True,
     enable_public_trace_link_endpoint=True,
     input_type=AgentInput,
-    per_req_config_modifier=lambda config: {
+    per_req_config_modifier=lambda config, request: {
         **config,
         "configurable": {
             **config.get("configurable", {}),
@@ -74,21 +66,5 @@ async def generic_exception_handler(request, exc):
     return {
         "error": str(exc),
         "detail": "An unexpected error occurred",
-        "type": type(exc).__name__,
-        "python_path": sys.path
-    }
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "0.0.0.0")
-    print(f"Starting server with Python path: {sys.path}")
-    uvicorn.run(
-        "langchain_react_agent.server:app",
-        host=host,
-        port=port,
-        log_level="info",
-        proxy_headers=True,
-        forwarded_allow_ips="*",
-        reload=True
-    ) 
+        "type": type(exc).__name__
+    } 

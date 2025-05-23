@@ -5,14 +5,14 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import tool, Tool, BaseTool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
-from langchain_react_agent.country_data import Operation
-from langchain_react_agent.container_data import ContainerType
+from .country_data import Operation, CountryDataRequest, SameCountryRequest, GetEntryRequest, SearchRequest
+from .container_data import ContainerType, ContainerRequest
 import requests
 import os
 import time
 import random
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, Type, List
+from pydantic import BaseModel, Field, RootModel
+from typing import Optional, Dict, Any, Type, List, Union, Literal
 from dotenv import load_dotenv
 import json
 from urllib.parse import urljoin
@@ -41,6 +41,79 @@ print("\nDebug: Environment Variables:")
 print(f"OPENAI_API_KEY exists: {'Yes' if OPENAI_API_KEY else 'No'}")
 print(f"API_BASE_URL: {API_BASE_URL or 'Using relative paths'}\n")
 
+# Add these new models at the top level, before the CountryDataTool class
+class WrappedRequest(BaseModel):
+    root: Union[GetEntryRequest, SearchRequest, SameCountryRequest]
+
+class CountryDataTool(BaseTool):
+    name: str = "country_data"
+    description: str = """Use this tool to validate port information or search for port codes.
+    Input should be a JSON object with:
+    - operation: One of 'get_entry', 'search', or 'same_country'
+    - For get_entry: entry_id (required)
+    - For search: search_query (required)
+    - For same_country: entry1_id and entry2_id (both required)
+    """
+    args_schema: Type[BaseModel] = WrappedRequest
+
+    def _run(self, request: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Run the tool."""
+        try:
+            # Parse the input into our WrappedRequest model
+            if isinstance(request, str):
+                request_data = json.loads(request)
+            elif isinstance(request, dict):
+                if 'args' in request:
+                    request_data = request['args']
+                elif 'function' in request and 'arguments' in request['function']:
+                    request_data = json.loads(request['function']['arguments'])
+                else:
+                    request_data = request
+            else:
+                raise ValueError(f"Unexpected request type: {type(request)}")
+
+            # Validate and parse the request using our WrappedRequest model
+            wrapped_request = WrappedRequest.model_validate(request_data)
+            request_obj = wrapped_request.root
+
+            # Send the request to the API
+            response = requests.post(
+                COUNTRY_DATA_ENDPOINT,
+                json=request_obj.model_dump(),
+                verify=bool(API_BASE_URL)  # Only verify SSL in local environment
+            )
+            response.raise_for_status()
+            return response.json()
+        except json.JSONDecodeError as e:
+            return {"error": f"Invalid JSON format: {str(e)}"}
+        except requests.exceptions.RequestException as e:
+            return {"error": f"API request failed: {str(e)}"}
+        except Exception as e:
+            return {"error": f"Validation error: {str(e)}"}
+
+class ContainerCheckTool(BaseTool):
+    name: str = "container_check"
+    description: str = """Use this tool to validate container configurations.
+    Input should be a JSON object with a list of containers, each having:
+    - type: One of 'HH42', 'HH24', or 'HH12'
+    - count: Number of containers (must be >= 0)
+    At least one container type must have a count greater than 0.
+    """
+    args_schema: Type[BaseModel] = ContainerRequest
+
+    def _run(self, request: ContainerRequest) -> Dict[str, Any]:
+        """Run the tool."""
+        try:
+            response = requests.post(
+                CONTAINER_CHECK_ENDPOINT,
+                json=request.model_dump(),
+                verify=bool(API_BASE_URL)  # Only verify SSL in local environment
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
+
 # Initialize LLM with explicit API key
 llm = ChatOpenAI(
     model="gpt-3.5-turbo",
@@ -65,10 +138,9 @@ If the type is wrong or the number is not at least 1 ask the user to provide the
 
 # Create the agent with explicit configuration
 byo_chatgpt = create_react_agent(
-    llm=llm,
-    tools=tools,
-    prompt=system_prompt,
-    handle_parsing_errors=True
+    llm,
+    tools,
+    prompt=system_prompt
 )
 
 # Export the agent for use in the server
